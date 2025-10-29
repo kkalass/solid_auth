@@ -6,7 +6,7 @@ import 'package:oidc/oidc.dart';
 import 'package:oidc_default_store/oidc_default_store.dart';
 import 'package:solid_auth/src/oidc/solid_oidc_user_manager.dart';
 export 'package:solid_auth/src/oidc/solid_oidc_user_manager.dart'
-    show DPoP, UserAndWebId;
+    show DPoP, UserAndWebId, DpopCredentials;
 
 /// The default refresh behavior: refresh tokens 1 minute before they expire.
 ///
@@ -965,6 +965,73 @@ class SolidAuth {
   /// Throws an exception if no user is currently authenticated.
   DPoP genDpopToken(String url, String method) {
     return _manager!.genDpopToken(url, method);
+  }
+
+  /// Exports DPoP credentials for use in worker threads/isolates.
+  ///
+  /// This method enables DPoP token generation on worker threads by extracting
+  /// the necessary cryptographic material and access token. The returned
+  /// credentials can be safely transferred to Dart isolates or web workers.
+  ///
+  /// ## ⚠️ Contains Sensitive Material
+  ///
+  /// The exported credentials include your **RSA private key** and **access token**.
+  /// These are safe to transfer within your app's process (isolates, web workers)
+  /// but must NEVER be sent over networks, stored to disk, or logged.
+  ///
+  /// ## Quick Example
+  ///
+  /// ```dart
+  /// // Export credentials
+  /// final credentials = solidAuth.exportDpopCredentials();
+  ///
+  /// // Send to isolate
+  /// await Isolate.spawn(workerFunction, credentials.toJson());
+  ///
+  /// // Worker generates DPoP token
+  /// void workerFunction(Map<String, dynamic> json) {
+  ///   final credentials = DpopCredentials.fromJson(json);
+  ///   final dpop = credentials.generateDpopToken(
+  ///     url: 'https://alice.pod.com/data/',
+  ///     method: 'GET',
+  ///   );
+  /// }
+  /// ```
+  ///
+  /// ## When to Use This
+  ///
+  /// Use this method when:
+  /// - DPoP token generation is a performance bottleneck
+  /// - You need to generate multiple tokens in parallel
+  /// - Your architecture separates authentication from request processing
+  ///
+  /// For most applications, the simpler [genDpopToken] method is sufficient:
+  /// ```dart
+  /// final dpop = solidAuth.genDpopToken(url, method); // Simpler approach
+  /// ```
+  ///
+  /// ## Complete Documentation
+  ///
+  /// For detailed security guidelines, usage patterns, and examples, see:
+  /// **[doc/dpop_worker_threads.md](../doc/dpop_worker_threads.md)**
+  ///
+  /// The documentation includes:
+  /// - Comprehensive security model explanation
+  /// - Safe vs. unsafe usage patterns
+  /// - Complete examples for isolates, compute(), and web workers
+  /// - Performance considerations and best practices
+  ///
+  /// ## Throws
+  ///
+  /// Throws [Exception] if:
+  /// - No user is currently authenticated
+  /// - Access token is unavailable or expired
+  /// - RSA key pair is not initialized
+  DpopCredentials exportDpopCredentials() {
+    if (_manager == null) {
+      throw Exception('SolidAuth not initialized. Call authenticate() first.');
+    }
+    return _manager!.exportDpopCredentials();
   }
 
   /// Checks if a user is currently authenticated.

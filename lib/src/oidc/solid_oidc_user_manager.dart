@@ -9,6 +9,156 @@ import 'package:solid_auth/src/solid_auth_issuer.dart' as solid_auth_issuer;
 
 final _log = Logger("solid_authentication_oidc");
 
+/// Serializable credentials for generating DPoP tokens in worker threads/isolates.
+///
+/// This class contains all the necessary data to generate DPoP tokens without
+/// requiring access to the full [SolidAuth] instance. It's designed to be
+/// safely transferred to Dart isolates or web workers.
+///
+/// ## ⚠️ Contains Sensitive Cryptographic Material
+///
+/// This class holds your **RSA private key** and **OAuth2 access token**.
+/// These credentials enable secure intra-process transfer to worker threads
+/// while maintaining the security boundary of your application.
+///
+/// ## Quick Example
+///
+/// ```dart
+/// // Main thread
+/// final credentials = solidAuth.exportDpopCredentials();
+/// await Isolate.spawn(workerFunction, credentials.toJson());
+///
+/// // Worker thread
+/// void workerFunction(Map<String, dynamic> json) {
+///   final credentials = DpopCredentials.fromJson(json);
+///   final dpop = credentials.generateDpopToken(
+///     url: 'https://alice.pod.com/data/',
+///     method: 'GET',
+///   );
+/// }
+/// ```
+///
+/// ## Complete Documentation
+///
+/// For detailed security guidelines, usage patterns, and best practices, see:
+/// **[doc/dpop_worker_threads.md](../../doc/dpop_worker_threads.md)**
+///
+/// The documentation covers:
+/// - Security model and trust boundaries
+/// - Safe vs. unsafe usage patterns
+/// - Complete examples for isolates, compute(), and web workers
+/// - Thread safety considerations
+class DpopCredentials {
+  /// RSA public key in PEM format
+  final String publicKey;
+
+  /// RSA private key in PEM format
+  ///
+  /// **Warning**: This is sensitive cryptographic material. Handle with care.
+  final String privateKey;
+
+  /// Public key in JSON Web Key (JWK) format
+  final Map<String, dynamic> publicKeyJwk;
+
+  /// OAuth2 access token for the authenticated user
+  ///
+  /// **Warning**: This is a bearer token that grants access to resources.
+  final String accessToken;
+
+  const DpopCredentials({
+    required this.publicKey,
+    required this.privateKey,
+    required this.publicKeyJwk,
+    required this.accessToken,
+  });
+
+  /// Serializes the credentials to JSON for transfer to workers.
+  ///
+  /// The resulting map can be:
+  /// - Converted to JSON string via `jsonEncode(credentials.toJson())`
+  /// - Sent directly via isolate SendPort
+  /// - Posted to web workers via postMessage
+  Map<String, dynamic> toJson() => {
+        'publicKey': publicKey,
+        'privateKey': privateKey,
+        'publicKeyJwk': publicKeyJwk,
+        'accessToken': accessToken,
+      };
+
+  /// Deserializes credentials from JSON received from the main thread.
+  ///
+  /// Example:
+  /// ```dart
+  /// // From JSON string
+  /// final credentials = DpopCredentials.fromJson(jsonDecode(jsonString));
+  ///
+  /// // From map received via isolate
+  /// final credentials = DpopCredentials.fromJson(messageFromMain);
+  /// ```
+  factory DpopCredentials.fromJson(Map<String, dynamic> json) =>
+      DpopCredentials(
+        publicKey: json['publicKey'] as String,
+        privateKey: json['privateKey'] as String,
+        publicKeyJwk: json['publicKeyJwk'] as Map<String, dynamic>,
+        accessToken: json['accessToken'] as String,
+      );
+
+  /// Generates a DPoP token using these credentials.
+  ///
+  /// This method can be called from any thread (main thread, isolate, or web worker)
+  /// without requiring access to a [SolidAuth] instance. It's designed for use cases where
+  /// DPoP token generation needs to happen on a worker thread for performance reasons.
+  ///
+  /// ## Parameters
+  ///
+  /// - [url]: The complete URL of the API endpoint being accessed
+  /// - [method]: The HTTP method ('GET', 'POST', 'PUT', 'DELETE', etc.)
+  ///
+  /// ## Return Value
+  ///
+  /// Returns a [DPoP] object containing both the DPoP proof token and access token.
+  ///
+  /// ## Example
+  ///
+  /// ```dart
+  /// // In a worker/isolate
+  /// void workerFunction(Map<String, dynamic> credentialsJson) {
+  ///   final credentials = DpopCredentials.fromJson(credentialsJson);
+  ///   final dpop = credentials.generateDpopToken(
+  ///     url: 'https://alice.pod.com/data/file.txt',
+  ///     method: 'GET',
+  ///   );
+  ///
+  ///   // Use in HTTP request
+  ///   final response = await http.get(
+  ///     Uri.parse('https://alice.pod.com/data/file.txt'),
+  ///     headers: dpop.httpHeaders(),
+  ///   );
+  /// }
+  /// ```
+  ///
+  /// ## Security
+  ///
+  /// - Each DPoP token is bound to the specific URL and HTTP method
+  /// - Tokens include a unique nonce and timestamp
+  /// - Tokens should be generated fresh for each request
+  /// - The private key never leaves the credentials object
+  DPoP generateDpopToken({
+    required String url,
+    required String method,
+  }) {
+    final rsaKeyPair = KeyPair(publicKey, privateKey);
+    final dpopToken = solid_auth_client.genDpopToken(
+      url,
+      rsaKeyPair,
+      publicKeyJwk,
+      method,
+    );
+
+    return DPoP(dpopToken: dpopToken, accessToken: accessToken);
+  }
+}
+
 /// Contains DPoP token and access token for authenticated API requests to Solid servers.
 ///
 /// DPoP (Demonstration of Proof-of-Possession) is a security mechanism required
@@ -238,6 +388,10 @@ Future<List<Uri>> _getIssuersDefault(String webIdOrIssuer) async {
   }
 }
 
+/// Internal storage for RSA key pair used in DPoP token generation.
+///
+/// This class is not intended for direct use. Instead, use [DpopCredentials]
+/// to safely transfer credentials to worker threads/isolates.
 class _RsaInfo {
   final String pubKey;
   final String privKey;
@@ -248,6 +402,12 @@ class _RsaInfo {
     required this.privKey,
     required this.pubKeyJwk,
   });
+
+  Map<String, dynamic> toJson() => {
+        'pubKey': pubKey,
+        'privKey': privKey,
+        'pubKeyJwk': pubKeyJwk,
+      };
 }
 
 /// Advanced configuration settings for the OIDC authentication flow in Solid applications.
@@ -1185,6 +1345,79 @@ class SolidOidcUserManager {
     final accessToken = _manager!.currentUser!.token.accessToken!;
 
     return DPoP(dpopToken: dpopToken, accessToken: accessToken);
+  }
+
+  /// Exports DPoP credentials for use in worker threads/isolates.
+  ///
+  /// This method extracts the necessary cryptographic material and tokens
+  /// to allow DPoP token generation in a separate thread without requiring
+  /// the full [SolidOidcUserManager] instance.
+  ///
+  /// ## Use Cases
+  ///
+  /// - Offloading DPoP token generation to a worker thread for performance
+  /// - Generating multiple DPoP tokens in parallel in separate isolates
+  /// - Separating authentication from request processing in worker architecture
+  ///
+  /// ## Security Considerations
+  ///
+  /// The returned [DpopCredentials] contain sensitive data:
+  /// - RSA private key for DPoP signing
+  /// - OAuth2 access token granting resource access
+  ///
+  /// **Best Practices:**
+  /// - Only export when actually needed for worker processing
+  /// - Send only to trusted worker code within your application
+  /// - Generate fresh credentials for each worker task
+  /// - Never persist exported credentials to disk
+  /// - Dispose of credentials immediately after use
+  ///
+  /// ## Example
+  ///
+  /// ```dart
+  /// // Main thread
+  /// final manager = SolidOidcUserManager(/* ... */);
+  /// await manager.init();
+  /// await manager.loginAuthorizationCodeFlow();
+  ///
+  /// // Export for worker
+  /// final credentials = manager.exportDpopCredentials();
+  ///
+  /// // Send to isolate
+  /// await Isolate.spawn(workerFunction, credentials.toJson());
+  ///
+  /// // Worker thread
+  /// void workerFunction(Map<String, dynamic> credentialsJson) {
+  ///   final credentials = DpopCredentials.fromJson(credentialsJson);
+  ///   final dpop = credentials.generateDpopToken(
+  ///     url: 'https://alice.pod.com/data/',
+  ///     method: 'GET',
+  ///   );
+  ///   // Use dpop for request...
+  /// }
+  /// ```
+  ///
+  /// ## Throws
+  ///
+  /// Throws [Exception] if:
+  /// - No user is currently authenticated
+  /// - Access token is not available
+  /// - RSA key pair is not initialized
+  DpopCredentials exportDpopCredentials() {
+    if (_manager?.currentUser?.token.accessToken == null) {
+      throw Exception('No access token available. User must be authenticated.');
+    }
+    if (_rsaInfo == null) {
+      throw Exception(
+          'RSA key pair not initialized. User must be authenticated.');
+    }
+
+    return DpopCredentials(
+      publicKey: _rsaInfo!.pubKey,
+      privateKey: _rsaInfo!.privKey,
+      publicKeyJwk: Map<String, dynamic>.from(_rsaInfo!.pubKeyJwk),
+      accessToken: _manager!.currentUser!.token.accessToken!,
+    );
   }
 
   /// Logs out the current user and clears all authentication data.

@@ -1,25 +1,6 @@
-import 'dart:async';
-
-import 'package:fast_rsa/fast_rsa.dart';
 import 'package:solid_auth/src/jwt/dart_jsonwebtoken.dart';
+import 'package:solid_auth/src/rsa/rsa_api.dart';
 import 'package:uuid/uuid.dart';
-
-/// Generate RSA key pair for the authentication
-Future<Map> genRsaKeyPair() async {
-  /// Generate a key pair
-  var rsaKeyPair = await RSA.generate(2048);
-
-  /// JWK conversion of private and public keys
-  var publicKeyJwk = await RSA.convertPublicKeyToJWK(rsaKeyPair.publicKey);
-  var privateKeyJwk = await RSA.convertPrivateKeyToJWK(rsaKeyPair.privateKey);
-
-  publicKeyJwk['alg'] = "RS256";
-  return {
-    'rsa': rsaKeyPair,
-    'privKeyJwk': privateKeyJwk,
-    'pubKeyJwk': publicKeyJwk
-  };
-}
 
 /// Generate dPoP token for the authentication
 String genDpopToken(String endPointUrl, KeyPair rsaKeyPair,

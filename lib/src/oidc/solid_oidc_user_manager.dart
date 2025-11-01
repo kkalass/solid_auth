@@ -1,11 +1,11 @@
 import 'dart:convert';
-
-import 'package:fast_rsa/fast_rsa.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:oidc/oidc.dart';
+import 'package:solid_auth/src/rsa/rsa_api.dart';
 import 'package:solid_auth/src/solid_auth_client.dart' as solid_auth_client;
 import 'package:solid_auth/src/solid_auth_issuer.dart' as solid_auth_issuer;
+import 'package:solid_auth/src/rsa/rsa_impl.dart';
 
 final _log = Logger("solid_authentication_oidc");
 
@@ -1160,12 +1160,12 @@ class SolidOidcUserManager {
   }
 
   Future<void> _generateAndPersistRsaKeyPair() async {
-    final rsaInfo = await solid_auth_client.genRsaKeyPair();
-    final rsa = rsaInfo['rsa'] as KeyPair;
+    final rsaInfo = await rsa.generate();
+    final keyPair = rsaInfo.rsaKeyPair;
     _rsaInfo = _RsaInfo(
-      pubKey: rsa.publicKey,
-      privKey: rsa.privateKey,
-      pubKeyJwk: rsaInfo['pubKeyJwk'],
+      pubKey: keyPair.publicKey,
+      privKey: keyPair.privateKey,
+      pubKeyJwk: rsaInfo.publicKeyJwk,
     );
     await _persistRsaInfo();
     _log.info('DPoP RSA key pair generated and persisted');

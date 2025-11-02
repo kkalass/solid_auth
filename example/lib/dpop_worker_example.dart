@@ -9,7 +9,11 @@
 /// has been successfully completed on the main thread.
 
 import 'dart:isolate';
-import 'package:solid_auth/solid_auth.dart';
+// For the "main" side of this example
+import 'package:solid_auth/solid_auth.dart' show SolidAuth;
+// In the real pure worker.dart file, you must not import solid_auth.dart directly
+// to avoid flutter dependencies. Instead, import only the necessary parts:
+import 'package:solid_auth/worker.dart';
 
 // Simple message passing between main and worker
 class _WorkerMessage {

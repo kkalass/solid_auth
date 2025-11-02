@@ -4,9 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:oidc/oidc.dart';
 import 'package:oidc_default_store/oidc_default_store.dart';
+import 'package:solid_auth/src/oidc/dpop_credentials.dart';
 import 'package:solid_auth/src/oidc/solid_oidc_user_manager.dart';
 export 'package:solid_auth/src/oidc/solid_oidc_user_manager.dart'
-    show DPoP, UserAndWebId, DpopCredentials;
+    show UserAndWebId;
+export 'package:solid_auth/src/oidc/dpop_credentials.dart'
+    show DpopCredentials, DPoP;
 
 /// The default refresh behavior: refresh tokens 1 minute before they expire.
 ///

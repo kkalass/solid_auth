@@ -193,6 +193,173 @@ await solidAuth.logout();
 await solidAuth.dispose();
 ```
 
+## ⚡ Advanced: DPoP Token Generation in Worker Threads
+
+For performance-critical applications that need to generate many DPoP tokens without blocking the UI, `solid_auth` provides a Flutter-free entry point for use in Dart isolates and web workers.
+
+### Why Use Worker Threads?
+
+- **Non-blocking UI**: Offload cryptographic operations from the main thread
+- **Parallel Processing**: Generate multiple DPoP tokens concurrently
+- **Better Performance**: Utilize multiple CPU cores for token generation
+- **Scalability**: Handle high-throughput API scenarios
+
+### Architecture Overview
+
+```
+Main Thread (Flutter)          Worker Thread (Pure Dart)
+─────────────────────         ─────────────────────────
+import 'solid_auth.dart'      import 'solid_auth/worker.dart'
+                  
+SolidAuth                      DpopCredentials
+├─ authenticate() ────────────> (serialize)
+├─ exportDpopCredentials()     ├─ fromJson()
+└─ (Flutter/OIDC flow)         └─ generateDpopToken()
+```
+
+### Basic Usage
+
+```dart
+// worker.dart - Pure Dart worker thread (NO Flutter imports!)
+import 'dart:isolate';
+import 'package:solid_auth/worker.dart'; // ← Flutter-free entry point
+
+void workerEntryPoint(Map<String, dynamic> message) {
+  final credentials = DpopCredentials.fromJson(message['credentials']);
+  
+  final dpop = credentials.generateDpopToken(
+    url: message['url'] as String,
+    method: message['method'] as String,
+  );
+  
+  // Send result back to main thread
+  final sendPort = message['sendPort'] as SendPort;
+  sendPort.send({
+    'dpopToken': dpop.dpopToken,
+    'accessToken': dpop.accessToken,
+  });
+}
+```
+
+```dart
+// main.dart - Main thread with Flutter
+import 'package:solid_auth/solid_auth.dart';
+
+Future<DPoP> generateInWorker(String url, String method) async {
+  // Export credentials from authenticated session
+  final credentials = solidAuth.exportDpopCredentials();
+  
+  // Spawn worker
+  final receivePort = ReceivePort();
+  await Isolate.spawn(workerEntryPoint, {
+    'credentials': credentials.toJson(),
+    'url': url,
+    'method': method,
+    'sendPort': receivePort.sendPort,
+  });
+  
+  // Wait for result
+  final response = await receivePort.first as Map<String, dynamic>;
+  receivePort.close();
+  
+  return DPoP(
+    dpopToken: response['dpopToken'] as String,
+    accessToken: response['accessToken'] as String,
+  );
+}
+```
+
+### Parallel Token Generation
+
+Generate multiple DPoP tokens in parallel for better performance:
+
+```dart
+import 'package:flutter/foundation.dart'; // for compute()
+
+// Define top-level function for compute()
+Map<String, String> _generateDpop(Map<String, dynamic> params) {
+  final credentials = DpopCredentials.fromJson(params['credentials']);
+  final dpop = credentials.generateDpopToken(
+    url: params['url'] as String,
+    method: params['method'] as String,
+  );
+  return {
+    'dpopToken': dpop.dpopToken,
+    'accessToken': dpop.accessToken,
+  };
+}
+
+// Generate tokens in parallel
+Future<List<DPoP>> generateMultipleTokens(
+  List<String> urls,
+  String method,
+) async {
+  final credentials = solidAuth.exportDpopCredentials();
+  
+  return Future.wait(
+    urls.map((url) async {
+      final result = await compute(_generateDpop, {
+        'credentials': credentials.toJson(),
+        'url': url,
+        'method': method,
+      });
+      return DPoP(
+        dpopToken: result['dpopToken']!,
+        accessToken: result['accessToken']!,
+      );
+    }),
+  );
+}
+```
+
+### Important: Flutter-Free Entry Point
+
+The `package:solid_auth/worker.dart` library is specifically designed to work without Flutter:
+
+```dart
+// ✅ Correct - Use in worker threads
+import 'package:solid_auth/worker.dart';
+
+// ❌ Wrong - Has Flutter dependencies
+import 'package:solid_auth/solid_auth.dart';
+```
+
+**What's in `worker.dart`:**
+- `DpopCredentials` - Serializable credentials
+- `DPoP` - Token result container  
+- `KeyPair` - Platform-agnostic RSA keys
+
+**What's NOT in `worker.dart`:**
+- `SolidAuth` - Main authentication class (requires Flutter)
+- OIDC flow management
+- UI components
+- Platform-specific storage
+
+### Security Considerations for Workers
+
+✅ **Safe:**
+- Passing credentials to isolates in the same process
+- Using `DpopCredentials.toJson()` for serialization
+- Generating fresh tokens for each request
+
+❌ **Unsafe:**
+- Persisting serialized credentials to disk
+- Sending credentials over the network
+- Logging credentials in plaintext
+- Sharing credentials between processes
+
+### Complete Example
+
+See [example/lib/dpop_worker_example.dart](example/lib/dpop_worker_example.dart) for a complete working example demonstrating:
+- Worker thread setup with proper message passing
+- Error handling in workers
+- Parallel token generation
+- Integration with the main authentication flow
+
+### Further Documentation
+
+For comprehensive information about worker thread patterns, security model, and best practices, see [doc/dpop_worker_threads.md](doc/dpop_worker_threads.md).
+
 ## 🔐 Client Configuration Guide
 
 ### Required Scopes

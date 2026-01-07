@@ -30,6 +30,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import '../openid_client.dart';
+import 'openid_exception.dart';
 
 export 'package:http/http.dart' show Client;
 

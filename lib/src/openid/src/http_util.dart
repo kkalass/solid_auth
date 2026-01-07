@@ -70,7 +70,7 @@ dynamic _processResponse(http.Response response) {
   var contentType = response.headers.entries
       .firstWhere(
         (v) => v.key.toLowerCase() == 'content-type',
-        orElse: () => MapEntry('', ''),
+        orElse: () => const MapEntry('', ''),
       )
       .value;
   var isJson = contentType.split(';').first == 'application/json';

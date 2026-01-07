@@ -432,7 +432,7 @@ extension _IssuerX on Issuer {
   Uri get tokenEndpoint {
     var endpoint = metadata.tokenEndpoint;
     if (endpoint == null) {
-      throw OpenIdException.missingTokenEndpoint();
+      throw const OpenIdException.missingTokenEndpoint();
     }
     return endpoint;
   }

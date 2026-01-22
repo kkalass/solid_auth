@@ -10,8 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  
-
   solid_auth:
     path: ..
 
@@ -29,10 +27,4 @@ flutter:
   assets:
     - assets/images/
 
-dependency_overrides:
-  oidc_core:
-    git:
-      url: https://github.com/kkalass/oidc.git
-      ref: fix/oidc-hook-execute-stack-overflow
-      path: packages/oidc_core
   
